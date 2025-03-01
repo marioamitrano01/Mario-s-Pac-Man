@@ -1,357 +1,478 @@
+import pygame
 import sys
 import random
-import pygame
-from pygame.math import Vector2
-from functools import wraps
-from typing import List, Tuple, Set, Optional
+import math
+from collections import deque
 
-# Global constants
-SCREEN_WIDTH, SCREEN_HEIGHT = 640, 480
-TILE_SIZE = 32
-FPS = 60
 
-# Maze layout: '#' represents a wall, '.' represents a pellet.
-maze_layout: List[str] = [
-    "####################",
-    "#........##........#",
-    "#.####...##...####.#",
-    "#..................#",
-    "#.####.#.##.#.####.#",
-    "#......#....#......#",
-    "######.#.##.#.######",
-    "     #.#.##.#.#     ",
-    "######.#.##.#.######",
-    "#........##........#",
-    "#.####...##...####.#",
-    "#......#....#......#",
-    "####################"
+
+
+pygame.init()
+FPS = 30
+clock = pygame.time.Clock()
+block_size = 20
+MAP_ROWS = 23
+MAP_COLS = 21
+RIGHT = 4
+UP = 3
+LEFT = 2
+DOWN = 1
+BLACK = (0, 0, 0)
+WALL_COLOR = (52, 45, 202)
+WALL_INNER_COLOR = (0, 0, 0)
+FOOD_COLOR = (254, 184, 151)
+PACMAN_COLOR = (255, 255, 0)
+GHOST_COLOR = (255, 0, 0)
+TEXT_COLOR = (255, 255, 255)
+WIDTH = block_size * MAP_COLS
+HEIGHT = block_size * MAP_ROWS + 40
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Mario's Pacman")
+
+
+
+game_map_layout = [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,2,2,2,2,2,2,2,2,2,1,2,2,2,2,2,2,2,2,2,1],
+    [1,2,1,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,1,2,1],
+    [1,2,1,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,1,2,1],
+    [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+    [1,2,1,1,1,2,1,2,1,1,1,1,1,2,1,2,1,1,1,2,1],
+    [1,2,2,2,2,2,1,2,2,2,1,2,2,2,1,2,2,2,2,2,1],
+    [1,1,1,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,1,1,1],
+    [0,0,0,0,1,2,1,2,2,2,2,2,2,2,1,2,1,0,0,0,0],
+    [1,1,1,1,1,2,1,2,1,1,2,1,1,2,1,2,1,1,1,1,1],
+    [2,2,2,2,2,2,2,2,1,2,2,2,1,2,2,2,2,2,2,2,2],
+    [1,1,1,1,1,2,1,2,1,2,2,2,1,2,1,2,1,1,1,1,1],
+    [0,0,0,0,1,2,1,2,1,1,1,1,1,2,1,2,1,0,0,0,0],
+    [0,0,0,0,1,2,1,2,2,2,2,2,2,2,1,2,1,0,0,0,0],
+    [1,1,1,1,1,2,2,2,1,1,1,1,1,2,2,2,1,1,1,1,1],
+    [1,2,2,2,2,2,2,2,2,2,1,2,2,2,2,2,2,2,2,2,1],
+    [1,2,1,1,1,2,1,1,1,2,1,2,1,1,1,2,1,1,1,2,1],
+    [1,2,2,2,1,2,2,2,2,2,1,2,2,2,2,2,1,2,2,2,1],
+    [1,1,2,2,1,2,1,2,1,1,1,1,1,2,1,2,1,2,2,1,1],
+    [1,2,2,2,2,2,1,2,2,2,1,2,2,2,1,2,2,2,2,2,1],
+    [1,2,1,1,1,1,1,1,1,2,1,2,1,1,1,1,1,1,1,2,1],
+    [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
 ]
 
-# Debug decorator for logging function calls (optional)
-def debug(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        # Uncomment next line to enable debugging output:
-        # print(f"[DEBUG] Calling {func.__name__} with args: {args[1:]}, kwargs: {kwargs}")
-        result = func(*args, **kwargs)
-        # print(f"[DEBUG] {func.__name__} returned {result}")
-        return result
-    return wrapper
 
-# Maze class
-class Maze:
-    def __init__(self, layout: List[str], tile_size: int, offset: Tuple[int, int]) -> None:
-        """
-        :param layout: List of strings representing the maze layout.
-        :param tile_size: Size of each tile in pixels.
-        :param offset: (x, y) offset to center the maze on the screen.
-        """
-        self.layout = layout
-        self.tile_size = tile_size
-        self.offset = offset
-        self.pellets: Set[Tuple[int, int]] = set()  # (column, row) positions for pellets
-        self.walls: List[pygame.Rect] = []           # List of wall rectangles
-        self._parse_layout()
 
-    def _parse_layout(self) -> None:
-        for row_index, row in enumerate(self.layout):
-            for col_index, char in enumerate(row):
-                pos_x = col_index * self.tile_size + self.offset[0]
-                pos_y = row_index * self.tile_size + self.offset[1]
-                if char == '#':
-                    self.walls.append(pygame.Rect(pos_x, pos_y, self.tile_size, self.tile_size))
-                elif char == '.':
-                    self.pellets.add((col_index, row_index))
 
-    def draw(self, screen: pygame.Surface) -> None:
-        # Draw walls in blue
-        for wall in self.walls:
-            pygame.draw.rect(screen, (0, 0, 255), wall)
-        # Draw pellets in yellow
-        for pellet in self.pellets:
-            pellet_x = int(pellet[0] * self.tile_size + self.tile_size // 2 + self.offset[0])
-            pellet_y = int(pellet[1] * self.tile_size + self.tile_size // 2 + self.offset[1])
-            pygame.draw.circle(screen, (255, 255, 0), (pellet_x, pellet_y), 4)
+random_targets = [
 
-    def eat_pellet(self, tile_pos: Tuple[int, int]) -> bool:
-        if tile_pos in self.pellets:
-            self.pellets.remove(tile_pos)
-            return True
-        return False
 
-# Player class (Pac-Man)
-class Player:
-    def __init__(self, position: Tuple[int, int], speed: float, maze: Maze) -> None:
-        """
-        :param position: Starting position (in pixels).
-        :param speed: Movement speed in pixels per second.
-        :param maze: Reference to the Maze for collision detection.
-        """
-        self.position: Vector2 = Vector2(position)
-        self.speed: float = speed
-        self.maze: Maze = maze
-        self.radius: int = TILE_SIZE // 2 - 2  # So Pac-Man fits inside a tile
-        self.direction: Vector2 = Vector2(1, 0)  # Initial direction: right
-        self.next_direction: Optional[Vector2] = None  # Buffered direction
-        self.mouth_open: bool = True
-        self.mouth_timer: float = 0.0
-        self.mouth_interval: float = 200.0  # Milliseconds for mouth toggle
 
-    def try_change_direction(self) -> None:
-        """
-        If there is a buffered direction, apply it when Pac-Man is close enough to the center of a tile and
-        the new direction is not blocked.
-        """
-        if self.next_direction is None:
-            return
+    (block_size, block_size),
+    (block_size, (MAP_ROWS - 2) * block_size),
+    ((MAP_COLS - 2) * block_size, block_size),
+    ((MAP_COLS - 2) * block_size, (MAP_ROWS - 2) * block_size)
+]
 
-        # Compute Pac-Man's center (self.position is top-left)
-        player_center = self.position + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
 
-        # Determine the tile in which the player is
-        tile_x = int((player_center.x - self.maze.offset[0]) // TILE_SIZE)
-        tile_y = int((player_center.y - self.maze.offset[1]) // TILE_SIZE)
 
-        # Calculate the exact center of the tile
-        tile_center = Vector2(
-            self.maze.offset[0] + tile_x * TILE_SIZE + TILE_SIZE / 2,
-            self.maze.offset[1] + tile_y * TILE_SIZE + TILE_SIZE / 2
-        )
+score = 0
+lives = 3
+ghost_count = 4
+def copy_map(m):
+    return [row[:] for row in m]
 
-        # If the distance between the centers is less than 4 pixels, try to apply the buffered direction
-        if (player_center - tile_center).length() < 4:
-            test_position = self.position + self.next_direction * self.speed * (1 / FPS)
-            test_rect = pygame.Rect(test_position.x, test_position.y, TILE_SIZE, TILE_SIZE)
-            if not any(test_rect.colliderect(wall) for wall in self.maze.walls):
-                self.direction = self.next_direction
-                self.next_direction = None
 
-    @debug
-    def update(self, dt: float) -> None:
-        # Attempt to change direction if a buffered input exists
-        self.try_change_direction()
 
-        # Move in the current direction
-        move_amount = self.direction * self.speed * dt
-        new_position = self.position + move_amount
 
-        pacman_rect = pygame.Rect(new_position.x, new_position.y, TILE_SIZE, TILE_SIZE)
-        if not any(pacman_rect.colliderect(wall) for wall in self.maze.walls):
-            self.position = new_position
 
-        # Update mouth animation
-        self.mouth_timer += dt * 1000  # Convert dt to milliseconds
-        if self.mouth_timer >= self.mouth_interval:
-            self.mouth_open = not self.mouth_open
-            self.mouth_timer = 0.0
+class Pacman:
+    def __init__(self, x, y, size, speed):
+        self.x = x
+        self.y = y
+        self.size = size
+        self.speed = speed
+        self.direction = RIGHT
+        self.next_direction = RIGHT
+        self.frame_count = 7
+        self.current_frame = 1
+        self.animation_timer = 0
 
-    def draw(self, screen: pygame.Surface) -> None:
-        center = (int(self.position.x + TILE_SIZE / 2), int(self.position.y + TILE_SIZE / 2))
-        color = (255, 255, 0)  # Yellow
-        if self.mouth_open:
-            pygame.draw.circle(screen, color, center, self.radius)
-            # Draw an open mouth as a black triangle
-            mouth_points = [
-                center,
-                (center[0] + self.radius, center[1] - self.radius // 2),
-                (center[0] + self.radius, center[1] + self.radius // 2)
-            ]
-            pygame.draw.polygon(screen, (0, 0, 0), mouth_points)
-        else:
-            pygame.draw.circle(screen, color, center, self.radius)
+        
+    def get_map_x(self):
+        return int(self.x // block_size)
+    
 
-# Ghost class
-class Ghost:
-    def __init__(self, position: Tuple[int, int], speed: float, color: Tuple[int, int, int], maze: Maze) -> None:
-        """
-        :param position: Initial position of the ghost.
-        :param speed: Movement speed in pixels per second.
-        :param color: Ghost color (RGB tuple).
-        :param maze: Reference to the Maze for collision detection.
-        """
-        self.position: Vector2 = Vector2(position)
-        self.speed: float = speed
-        self.color: Tuple[int, int, int] = color
-        self.maze: Maze = maze
-        self.radius: int = TILE_SIZE // 2 - 2
-        self.direction: Vector2 = self.random_direction()
-        self.change_dir_timer: float = 0.0
-        self.change_interval: float = 1000.0  # Milliseconds
+    def get_map_y(self):
+        return int(self.y // block_size)
+    
 
-    def random_direction(self) -> Vector2:
-        directions = [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]
-        return random.choice(directions)
+    def get_map_x_right_side(self):
+        return int((self.x + self.size - 1) // block_size)
+    
 
-    def update(self, dt: float) -> None:
-        self.change_dir_timer += dt * 1000
-        if self.change_dir_timer >= self.change_interval:
-            self.direction = self.random_direction()
-            self.change_dir_timer = 0.0
+    def get_map_y_bottom_side(self):
+        return int((self.y + self.size - 1) // block_size)
+    
 
-        move_amount = self.direction * self.speed * dt
-        new_position = self.position + move_amount
-        ghost_rect = pygame.Rect(new_position.x, new_position.y, TILE_SIZE, TILE_SIZE)
-        if any(ghost_rect.colliderect(wall) for wall in self.maze.walls):
-            self.direction = self.random_direction()
-        else:
-            self.position = new_position
+    def update_animation(self, dt):
+        self.animation_timer += dt
+        if self.animation_timer >= 100:
+            self.current_frame = self.current_frame + 1 if self.current_frame < self.frame_count else 1
+            self.animation_timer = 0
 
-    def draw(self, screen: pygame.Surface) -> None:
-        center = (int(self.position.x + TILE_SIZE / 2), int(self.position.y + TILE_SIZE / 2))
-        pygame.draw.circle(screen, self.color, center, self.radius)
 
-# Game class with improved interface and creative end screens
-class Game:
-    def __init__(self) -> None:
-        pygame.init()
-        # We no longer use the mixer since there is no sound.
-        self.clock = pygame.time.Clock()
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("Mario's Pac-Man")
+    def move_forwards(self):
+        if self.direction == RIGHT:
+            self.x += self.speed
+        elif self.direction == UP:
+            self.y -= self.speed
+        elif self.direction == LEFT:
+            self.x -= self.speed
+        elif self.direction == DOWN:
+            self.y += self.speed
 
-        # Fonts for UI messages
-        self.font = pygame.font.SysFont("Arial", 18)
-        self.big_font = pygame.font.SysFont("Arial", 36)
 
-        self.state: str = "start"  # Game states: "start", "playing", "game_over", "win"
-        self.state_timer: float = 0.0  # For animating end screens
-        self.reset_game()
+    def move_backwards(self):
+        if self.direction == RIGHT:
+            self.x -= self.speed
+        elif self.direction == UP:
+            self.y += self.speed
+        elif self.direction == LEFT:
+            self.x += self.speed
+        elif self.direction == DOWN:
+            self.y -= self.speed
 
-    def reset_game(self) -> None:
-        """Reset the game objects and score."""
-        maze_width = len(maze_layout[0]) * TILE_SIZE
-        maze_height = len(maze_layout) * TILE_SIZE
-        offset_x = (SCREEN_WIDTH - maze_width) // 2
-        offset_y = (SCREEN_HEIGHT - maze_height) // 2
-        self.maze = Maze(maze_layout, TILE_SIZE, (offset_x, offset_y))
-        self.player = Player((offset_x + TILE_SIZE, offset_y + TILE_SIZE), 100, self.maze)
-        self.ghosts: List[Ghost] = []
-        ghost_colors = [(255, 0, 0), (255, 184, 255), (0, 255, 255), (255, 184, 82)]
-        ghost_positions = [
-            (offset_x + TILE_SIZE * 10, offset_y + TILE_SIZE * 5),
-            (offset_x + TILE_SIZE * 9,  offset_y + TILE_SIZE * 5),
-            (offset_x + TILE_SIZE * 10, offset_y + TILE_SIZE * 6),
-            (offset_x + TILE_SIZE * 9,  offset_y + TILE_SIZE * 6)
+
+    def check_collisions(self, game_map):
+        corners = [
+            (self.x, self.y),
+            (self.x + self.size - 1, self.y),
+            (self.x, self.y + self.size - 1),
+            (self.x + self.size - 1, self.y + self.size - 1)
         ]
-        for pos, color in zip(ghost_positions, ghost_colors):
-            self.ghosts.append(Ghost(pos, 80, color, self.maze))
-        self.score: int = 0
 
-    def process_events(self) -> None:
-        """Handle events and state transitions."""
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                self.state = "exit"
-            elif event.type == pygame.KEYDOWN:
-                if self.state == "start":
-                    if event.key == pygame.K_SPACE:
-                        self.state = "playing"
-                        self.reset_game()
-                elif self.state == "playing":
-                    # Buffer directional inputs
-                    if event.key == pygame.K_LEFT:
-                        self.player.next_direction = Vector2(-1, 0)
-                    elif event.key == pygame.K_RIGHT:
-                        self.player.next_direction = Vector2(1, 0)
-                    elif event.key == pygame.K_UP:
-                        self.player.next_direction = Vector2(0, -1)
-                    elif event.key == pygame.K_DOWN:
-                        self.player.next_direction = Vector2(0, 1)
-                elif self.state in ("game_over", "win"):
-                    # In either end state, press R to restart.
-                    if event.key == pygame.K_r:
-                        self.state = "playing"
-                        self.reset_game()
-                        self.state_timer = 0.0
 
-    def update(self, dt: float) -> None:
-        """Update game objects if playing."""
-        if self.state == "playing":
-            self.player.update(dt)
-            for ghost in self.ghosts:
-                ghost.update(dt)
+        for cx, cy in corners:
+            map_x = int(cx // block_size)
+            map_y = int(cy // block_size)
+            if map_y < 0 or map_y >= len(game_map) or map_x < 0 or map_x >= len(game_map[0]):
+                continue
+            if game_map[map_y][map_x] == 1:
+                return True
+        return False
+    
 
-            # Pellet consumption using player's center
-            player_center = self.player.position + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
-            tile_x = int((player_center.x - self.maze.offset[0]) // TILE_SIZE)
-            tile_y = int((player_center.y - self.maze.offset[1]) // TILE_SIZE)
-            if self.maze.eat_pellet((tile_x, tile_y)):
-                self.score += 10
 
-            # Check win condition: no more pellets
-            if not self.maze.pellets:
-                self.state = "win"
-                self.state_timer = 0.0
+    def change_direction_if_possible(self, game_map):
+        if self.direction == self.next_direction:
+            return
+        original_direction = self.direction
+        self.direction = self.next_direction
+        self.move_forwards()
+        if self.check_collisions(game_map):
+            self.move_backwards()
+            self.direction = original_direction
+        else:
+            self.move_backwards()
 
-            # Check collision between player and ghosts
-            player_rect = pygame.Rect(self.player.position.x, self.player.position.y, TILE_SIZE, TILE_SIZE)
-            for ghost in self.ghosts:
-                ghost_rect = pygame.Rect(ghost.position.x, ghost.position.y, TILE_SIZE, TILE_SIZE)
-                if player_rect.colliderect(ghost_rect):
-                    self.state = "game_over"
-                    self.state_timer = 0.0
-                    break
 
-        # In the end states, update the timer (for dynamic animations)
-        if self.state in ("game_over", "win"):
-            self.state_timer += dt
 
-    def draw(self) -> None:
-        """Draw the game or UI screens depending on state."""
-        self.screen.fill((0, 0, 0))
-        if self.state == "start":
-            # Draw the start menu
-            title_text = self.big_font.render("Mario's Pac-Man", True, (255, 255, 0))
-            instruction_text = self.font.render("Press SPACE to start", True, (255, 255, 255))
-            self.screen.blit(title_text, ((SCREEN_WIDTH - title_text.get_width()) // 2, SCREEN_HEIGHT // 3))
-            self.screen.blit(instruction_text, ((SCREEN_WIDTH - instruction_text.get_width()) // 2, SCREEN_HEIGHT // 2))
-        elif self.state == "playing":
-            # Draw the game objects
-            self.maze.draw(self.screen)
-            self.player.draw(self.screen)
-            for ghost in self.ghosts:
-                ghost.draw(self.screen)
-            # Draw the score
-            score_surface = self.font.render(f"Score: {self.score}", True, (255, 255, 255))
-            self.screen.blit(score_surface, (10, 10))
-        elif self.state == "game_over":
-            # Create a flashing color effect for the "Game Over" message
-            flash_color = (255, 0, 0) if int(self.state_timer * 3) % 2 == 0 else (255, 255, 0)
-            self.maze.draw(self.screen)
-            self.player.draw(self.screen)
-            for ghost in self.ghosts:
-                ghost.draw(self.screen)
-            game_over_text = self.big_font.render("Game Over!", True, flash_color)
-            restart_text = self.font.render("Press R to restart", True, (255, 255, 255))
-            self.screen.blit(game_over_text, ((SCREEN_WIDTH - game_over_text.get_width()) // 2, SCREEN_HEIGHT // 3))
-            self.screen.blit(restart_text, ((SCREEN_WIDTH - restart_text.get_width()) // 2, SCREEN_HEIGHT // 2))
-            score_surface = self.font.render(f"Final Score: {self.score}", True, (255, 255, 255))
-            self.screen.blit(score_surface, ((SCREEN_WIDTH - score_surface.get_width()) // 2, SCREEN_HEIGHT // 2 + 30))
-        elif self.state == "win":
-            # Create a dynamic "You Win!" screen
-            flash_color = (0, 255, 0) if int(self.state_timer * 3) % 2 == 0 else (0, 200, 200)
-            self.maze.draw(self.screen)
-            self.player.draw(self.screen)
-            for ghost in self.ghosts:
-                ghost.draw(self.screen)
-            win_text = self.big_font.render("Congratulations, You Win!", True, flash_color)
-            restart_text = self.font.render("Press R to restart", True, (255, 255, 255))
-            self.screen.blit(win_text, ((SCREEN_WIDTH - win_text.get_width()) // 2, SCREEN_HEIGHT // 3))
-            self.screen.blit(restart_text, ((SCREEN_WIDTH - restart_text.get_width()) // 2, SCREEN_HEIGHT // 2))
-            score_surface = self.font.render(f"Final Score: {self.score}", True, (255, 255, 255))
-            self.screen.blit(score_surface, ((SCREEN_WIDTH - score_surface.get_width()) // 2, SCREEN_HEIGHT // 2 + 30))
-        pygame.display.flip()
+    def move_process(self, game_map):
+        self.change_direction_if_possible(game_map)
+        self.move_forwards()
+        if self.check_collisions(game_map):
+            self.move_backwards()
 
-    def run(self) -> None:
-        """Main game loop."""
-        while self.state != "exit":
-            dt = self.clock.tick(FPS) / 1000.0  # Delta time in seconds
-            self.process_events()
-            self.update(dt)
-            self.draw()
+
+
+    def eat(self, game_map):
+        global score
+        map_x = self.get_map_x()
+        map_y = self.get_map_y()
+        if map_y < 0 or map_y >= len(game_map) or map_x < 0 or map_x >= len(game_map[0]):
+            return
+        if game_map[map_y][map_x] == 2:
+            game_map[map_y][map_x] = 3
+            score += 1
+
+
+
+
+    def draw(self, surface):
+        center = (int(self.x + self.size / 2), int(self.y + self.size / 2))
+        radius = self.size // 2
+        open_angle = (self.current_frame / self.frame_count) * 45
+        pygame.draw.circle(surface, PACMAN_COLOR, center, radius)
+
+
+
+
+class Ghost:
+    def __init__(self, x, y, size, speed, range_radius, target_index=0):
+        self.x = x
+        self.y = y
+        self.size = size
+        self.speed = speed
+        self.direction = RIGHT
+        self.range_radius = range_radius
+        self.random_target_index = target_index
+        self.target = random_targets[self.random_target_index]
+        self.last_random_change = pygame.time.get_ticks()
+
+
+
+    def get_map_x(self):
+        return int(self.x // block_size)
+    
+
+    def get_map_y(self):
+        return int(self.y // block_size)
+    
+
+    def get_map_x_right_side(self):
+        return int((self.x + self.size - 1) // block_size)
+    
+
+    def get_map_y_bottom_side(self):
+        return int((self.y + self.size - 1) // block_size)
+    
+
+    def check_collisions(self, game_map):
+        corners = [
+            (self.x, self.y),
+            (self.x + self.size - 1, self.y),
+            (self.x, self.y + self.size - 1),
+            (self.x + self.size - 1, self.y + self.size - 1)
+        ]
+        for cx, cy in corners:
+            map_x = int(cx // block_size)
+            map_y = int(cy // block_size)
+            if map_y < 0 or map_y >= len(game_map) or map_x < 0 or map_x >= len(game_map[0]):
+                continue
+            if game_map[map_y][map_x] == 1:
+                return True
+        return False
+    
+
+
+    def move_forwards(self):
+        if self.direction == RIGHT:
+            self.x += self.speed
+        elif self.direction == UP:
+            self.y -= self.speed
+        elif self.direction == LEFT:
+            self.x -= self.speed
+        elif self.direction == DOWN:
+            self.y += self.speed
+
+
+    def move_backwards(self):
+        if self.direction == RIGHT:
+            self.x -= self.speed
+        elif self.direction == UP:
+            self.y += self.speed
+        elif self.direction == LEFT:
+            self.x += self.speed
+        elif self.direction == DOWN:
+            self.y -= self.speed
+
+
+    def is_in_range(self, pacman):
+        dx = self.get_map_x() - pacman.get_map_x()
+        dy = self.get_map_y() - pacman.get_map_y()
+        distance = math.sqrt(dx * dx + dy * dy)
+        return distance <= self.range_radius
+    
+
+    def change_random_direction(self):
+        self.random_target_index = (self.random_target_index + 1) % len(random_targets)
+        self.target = random_targets[self.random_target_index]
+
+
+    def calculate_new_direction(self, game_map, dest_x, dest_y):
+        start = (self.get_map_x(), self.get_map_y())
+        queue = deque()
+        queue.append((start, []))
+        visited = set()
+        visited.add(start)
+        while queue:
+            current, moves = queue.popleft()
+            if current == (dest_x, dest_y):
+                return moves[0] if moves else self.direction
+            for d, (dx, dy) in zip([LEFT, RIGHT, UP, DOWN], [(-1, 0), (1, 0), (0, -1), (0, 1)]):
+                nx, ny = current[0] + dx, current[1] + dy
+                if 0 <= ny < len(game_map) and 0 <= nx < len(game_map[0]):
+                    if game_map[ny][nx] != 1 and (nx, ny) not in visited:
+                        visited.add((nx, ny))
+                        queue.append(((nx, ny), moves + [d]))
+        return self.direction
+    
+
+    def change_direction_if_possible(self, game_map, pacman):
+        current_time = pygame.time.get_ticks()
+        if current_time - self.last_random_change > 10000:
+            self.change_random_direction()
+            self.last_random_change = current_time
+        if self.is_in_range(pacman):
+            dest = (pacman.get_map_x(), pacman.get_map_y())
+        else:
+            dest = (int(self.target[0] // block_size), int(self.target[1] // block_size))
+        new_dir = self.calculate_new_direction(game_map, dest[0], dest[1])
+        old_dir = self.direction
+        self.direction = new_dir
+        self.move_forwards()
+        if self.check_collisions(game_map):
+            self.move_backwards()
+            self.direction = old_dir
+        else:
+            self.move_backwards()
+
+
+    def move_process(self, game_map, pacman):
+        self.change_direction_if_possible(game_map, pacman)
+        self.move_forwards()
+        if self.check_collisions(game_map):
+            self.move_backwards()
+
+
+
+    def draw(self, surface):
+        center = (int(self.x + self.size / 2), int(self.y + self.size / 2))
+        radius = self.size // 2
+        pygame.draw.circle(surface, GHOST_COLOR, center, radius)
+        pygame.draw.circle(surface, (255, 100, 100), center, int(self.range_radius * block_size), 1)
+
+
+
+def draw_walls(surface, game_map):
+
+
+    
+    wall_space_width = block_size / 1.6
+    wall_offset = (block_size - wall_space_width) / 2
+    for row in range(len(game_map)):
+        for col in range(len(game_map[0])):
+            if game_map[row][col] == 1:
+                rect = pygame.Rect(col * block_size, row * block_size, block_size, block_size)
+                pygame.draw.rect(surface, WALL_COLOR, rect)
+                if col > 0 and game_map[row][col - 1] == 1:
+                    inner_rect = pygame.Rect(col * block_size, row * block_size + wall_offset, wall_space_width + wall_offset, wall_space_width)
+                    pygame.draw.rect(surface, WALL_INNER_COLOR, inner_rect)
+                if col < len(game_map[0]) - 1 and game_map[row][col + 1] == 1:
+                    inner_rect = pygame.Rect(col * block_size + wall_offset, row * block_size + wall_offset, wall_space_width + wall_offset, wall_space_width)
+                    pygame.draw.rect(surface, WALL_INNER_COLOR, inner_rect)
+                if row < len(game_map) - 1 and game_map[row + 1][col] == 1:
+                    inner_rect = pygame.Rect(col * block_size + wall_offset, row * block_size + wall_offset, wall_space_width, wall_space_width + wall_offset)
+                    pygame.draw.rect(surface, WALL_INNER_COLOR, inner_rect)
+                if row > 0 and game_map[row - 1][col] == 1:
+                    inner_rect = pygame.Rect(col * block_size + wall_offset, row * block_size, wall_space_width, wall_space_width + wall_offset)
+                    pygame.draw.rect(surface, WALL_INNER_COLOR, inner_rect)
+
+
+def draw_foods(surface, game_map):
+    for row in range(len(game_map)):
+        for col in range(len(game_map[0])):
+            if game_map[row][col] == 2:
+                food_rect = pygame.Rect(col * block_size + block_size / 3, row * block_size + block_size / 3, block_size / 3, block_size / 3)
+                pygame.draw.rect(surface, FOOD_COLOR, food_rect)
+
+
+
+def draw_score_and_lives(surface):
+    font = pygame.font.SysFont("Arial", 20)
+    score_text = font.render("Score: " + str(score), True, TEXT_COLOR)
+    surface.blit(score_text, (10, block_size * MAP_ROWS + 10))
+    lives_text = font.render("Lives: ", True, TEXT_COLOR)
+    surface.blit(lives_text, (WIDTH - 150, block_size * MAP_ROWS + 10))
+    for i in range(lives):
+        pygame.draw.circle(surface, PACMAN_COLOR, (WIDTH - 80 + i * (block_size + 5), block_size * MAP_ROWS + 20), block_size // 2)
+
+
+
+def create_new_pacman():
+    return Pacman(block_size, block_size, block_size, block_size / 5)
+
+
+def create_ghosts():
+    ghosts = []
+    for i in range(ghost_count * 2):
+        init_x = 9 * block_size + (0 if i % 2 == 0 else 1) * block_size
+        init_y = 10 * block_size + (0 if i % 2 == 0 else 1) * block_size
+        ghost_speed = (block_size / 5) / 2
+        range_radius = 6 + i
+        ghosts.append(Ghost(init_x, init_y, block_size, ghost_speed, range_radius, target_index=i % len(random_targets)))
+    return ghosts
+
+
+
+def update_game(pacman, ghosts, game_map):
+    pacman.move_process(game_map)
+    pacman.eat(game_map)
+    for ghost in ghosts:
+        ghost.move_process(game_map, pacman)
+    for ghost in ghosts:
+        if ghost.get_map_x() == pacman.get_map_x() and ghost.get_map_y() == pacman.get_map_y():
+            handle_ghost_collision()
+            break
+
+
+
+def draw_game(pacman, ghosts, game_map):
+    screen.fill(BLACK)
+    draw_walls(screen, game_map)
+    draw_foods(screen, game_map)
+    for ghost in ghosts:
+        ghost.draw(screen)
+    pacman.draw(screen)
+    draw_score_and_lives(screen)
+    pygame.display.flip()
+
+
+
+
+def handle_ghost_collision():
+    global lives, pacman_obj, ghosts_obj, game_map
+    lives -= 1
+    pacman_obj = create_new_pacman()
+    ghosts_obj = create_ghosts()
+    if lives <= 0:
+        print("Game Over! Final Score:", score)
         pygame.quit()
         sys.exit()
+game_map = copy_map(game_map_layout)
+pacman_obj = create_new_pacman()
+ghosts_obj = create_ghosts()
+running = True
 
-if __name__ == "__main__":
-    game = Game()
-    game.run()
+
+
+
+while running:
+
+
+
+
+
+    dt = clock.tick(FPS)
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+            pygame.quit()
+            sys.exit()
+        elif event.type == pygame.KEYDOWN:
+            if event.key in [pygame.K_LEFT, pygame.K_a]:
+                pacman_obj.next_direction = LEFT
+            elif event.key in [pygame.K_RIGHT, pygame.K_d]:
+                pacman_obj.next_direction = RIGHT
+            elif event.key in [pygame.K_UP, pygame.K_w]:
+                pacman_obj.next_direction = UP
+            elif event.key in [pygame.K_DOWN, pygame.K_s]:
+                pacman_obj.next_direction = DOWN
+
+
+
+    pacman_obj.update_animation(dt)
+    update_game(pacman_obj, ghosts_obj, game_map)
+    draw_game(pacman_obj, ghosts_obj, game_map)
+
+
+
+
+pygame.quit()
